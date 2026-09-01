@@ -2,7 +2,7 @@
 // API CONFIGURATION
 // ============================================================
 
-const API_BASE_URL = "https://boltai-backend-krf1.onrender.com/";
+const API_BASE_URL = "https://boltai-backend-krf1.onrender.com";
 
 
 // ============================================================
