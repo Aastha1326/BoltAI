@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://localhost:3001";
+const API_BASE_URL = "https://boltai-backend-krf1.onrender.com";
 
 const stockOneInput = document.getElementById("stockOne");
 const stockTwoInput = document.getElementById("stockTwo");
