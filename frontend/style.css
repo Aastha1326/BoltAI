@@ -1,0 +1,417 @@
+body{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    color:white;
+}
+
+.navbar{
+    position: relative;
+}
+.rec{
+    display: flex;
+    justify-content: space-between;
+    border-bottom:1px solid #4a5abf45;
+    padding:0;
+    margin: 0;
+}
+.rec img {
+    margin:10px 10px;
+}
+
+.text {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: rgba(32, 25, 25, 0.571) 4px solid;
+    border-radius: 40px;
+    padding: 10px 20px;
+    margin: 180px auto 0 auto;
+    background-color: rgba(32, 25, 25, 0.571);
+    width: fit-content;
+}
+
+.text input {
+    font-size: 18px;
+    background: none;
+    border: none;
+    color: white;
+    outline: none;
+    width: 400px;
+    padding: 10px;
+}
+
+.bottom {
+    padding-left: 10px;
+}
+
+.bottom button {
+    background-color: rgb(62, 136, 233);
+    color: white;
+    padding: 10px 18px;
+    border: none;
+    border-radius: 15px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+/* Prevent enlargement and outline when clicked */
+.bottom button:focus,
+.bottom button:active {
+    outline: none;
+    transform: scale(1);
+    background-color: rgb(52, 120, 210);
+}
+
+.major{
+    position: relative;
+    top:120px;
+    font-size: xx-large;
+}
+.major span{
+    color: #13e8e9;
+}
+
+.major h3{
+    font-size:30px;
+    font-weight: 100;;
+}
+
+.option{
+ul{
+    display: flex;
+    justify-content: space-between;
+    flex-direction: row;
+    gap:33px;
+    list-style: none;
+    font-size: large;
+}}
+
+ul select{
+    background: none;
+    border: none;
+    color: white;
+    font-size: 16px;
+    outline: none;
+}
+
+ul select option {
+  background-color: rgba(0, 0, 0, 0.641);
+  color: rgb(216, 209, 210);
+}   
+
+
+
+.link{
+    display: flex;
+    justify-content: space-between;
+    flex-direction: row;
+    gap:14px; 
+    margin-top:22px;
+    margin-right: 10px;
+}
+ul li:hover{
+    color:rgb(165, 155, 142);
+}
+
+.link button{
+    background: grey;
+    border: none;
+    color: white;
+    font-size: 18px;
+    padding:6px;
+    margin-bottom: 36px;
+    padding: 0 auto;
+    border-radius:18px ;
+}
+#two{
+    background-color: blue;
+}
+
+canvas {
+    display: block;
+}
+
+/* ---- particles.js container ---- */
+#particles-js {
+      position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #00020ad6;
+    background-size: cover;
+    background-position: center;
+    z-index: -1;
+}
+
+.box {
+    position: relative;
+    top: 200px;
+    margin-left: 300px;
+    margin-right: 300px;
+    padding: 25px;
+    height: fit-content;
+    border-radius: 30px;
+    margin-top:100px;
+
+    /* Matches your theme */
+    background-color: rgba(32, 25, 25, 0.6);
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    color: white;
+
+    /* Adds depth without glow */
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
+}
+
+
+/* ---- stats.js ---- */
+.count-particles {
+    background: #000001;
+    position: absolute;
+    top: 48px;
+    left: 0;
+    width: 80px;
+    color: #13E8E9;
+    font-size: .8em;
+    text-align: left;
+    text-indent: 4px;
+    line-height: 14px;
+    padding-bottom: 2px;
+    font-family: Helvetica, Arial, sans-serif;
+    font-weight: bold;
+}
+
+.js-count-particles {
+    font-size: 1.1em;
+}
+
+#stats,
+.count-particles {
+    margin-top: 5px;
+    margin-left: 5px;
+}
+
+#stats {
+    border-radius: 3px 3px 0 0;
+    overflow: hidden;
+}
+
+.count-particles {
+    border-radius: 0 0 3px 3px;
+}
+
+
+.loading-container {
+  position: relative;
+  margin-top: 14px;
+  
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.box {
+  position: relative;
+  margin-left: 300px;
+  margin-right: 300px;
+  padding: 25px;
+  border-radius: 30px;
+  margin-top: 30px;
+  background-color: rgba(32, 25, 25, 0.6);
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
+  height: fit-content;
+  max-height: none;
+  overflow: visible;
+}
+
+
+
+/* ================================
+   COMPARE STOCKS BUTTON
+================================ */
+
+.compare-navigation-btn {
+    display: block;
+
+    margin: 55px auto 80px auto;
+
+    padding: 13px 28px;
+
+    background: rgba(19, 232, 233, 0.08);
+
+    color: #13e8e9;
+
+    border: 1px solid rgba(19, 232, 233, 0.45);
+
+    border-radius: 18px;
+
+    font-size: 16px;
+    font-weight: 500;
+
+    letter-spacing: 0.3px;
+
+    cursor: pointer;
+
+    transition:
+        background-color 0.25s ease,
+        border-color 0.25s ease,
+        transform 0.2s ease,
+        box-shadow 0.25s ease;
+}
+
+.compare-navigation-btn:hover {
+    background: rgba(19, 232, 233, 0.14);
+
+    border-color: #13e8e9;
+
+    transform: translateY(-2px);
+
+    box-shadow:
+        0 6px 20px rgba(19, 232, 233, 0.12);
+}
+
+.compare-navigation-btn:active {
+    transform: translateY(0);
+}
+
+.compare-navigation-btn:focus {
+    outline: none;
+}
+
+
+/* ==========================================
+   BOLT AI - ANALYSIS TABLES
+========================================== */
+
+.box table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 25px 0 35px 0;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.box thead {
+    background: rgba(19, 232, 233, 0.12);
+}
+
+.box th {
+    padding: 15px;
+    text-align: left;
+
+    color: #13e8e9;
+
+    font-size: 15px;
+
+    border-bottom:
+        1px solid rgba(19, 232, 233, 0.3);
+}
+
+.box td {
+    padding: 14px 15px;
+
+    color: #e5e5e5;
+
+    font-size: 15px;
+
+    border-bottom:
+        1px solid rgba(255, 255, 255, 0.07);
+}
+
+.box tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+.box tbody tr:hover {
+    background:
+        rgba(255, 255, 255, 0.04);
+}
+
+.box td:last-child {
+    color: #13e8e9;
+}
+
+.box strong {
+    color: white;
+}
+
+
+/* ANALYSIS HEADINGS */
+
+.box h1 {
+    color: #13e8e9;
+    font-size: 30px;
+    margin-bottom: 25px;
+}
+
+.box h2 {
+    color: #ffffff;
+
+    font-size: 23px;
+
+    margin-top: 40px;
+    margin-bottom: 20px;
+
+    padding-bottom: 10px;
+
+    border-bottom:
+        1px solid rgba(19, 232, 233, 0.2);
+}
+
+.box h3 {
+    color: #13e8e9;
+}
+
+
+/* PARAGRAPHS */
+
+.box p {
+    color: #d5d5d5;
+
+    line-height: 1.8;
+
+    font-size: 16px;
+}
+
+
+/* LISTS */
+
+.box ul,
+.box ol {
+    color: #d5d5d5;
+
+    line-height: 1.7;
+
+    padding-left: 25px;
+}
+
+.box li {
+    margin-bottom: 8px;
+}
+
+
+/* MOBILE */
+
+@media (max-width: 800px) {
+
+    .box {
+        margin-left: 20px;
+        margin-right: 20px;
+        padding: 18px;
+    }
+
+    .box table {
+        display: block;
+        overflow-x: auto;
+    }
+
+    .box table th,
+    .box table td {
+        white-space: nowrap;
+    }
+}

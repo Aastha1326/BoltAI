@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Bolt AI — Smart Stock Insight</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- Particle Background -->
+    <div id="particles-js"></div>
+
+
+    <!-- NAVBAR -->
+    <div class="navbar">
+
+        <div class="rec">
+
+            <img
+                src="logo1.png"
+                height="50px"
+                width="60px"
+                alt="Bolt AI Logo"
+            >
+
+            <div class="option">
+
+                <ul>
+
+                    <li>Community</li>
+
+                    <li>Enterprise</li>
+
+                    <li>
+                        <select>
+                            <option selected disabled>
+                                Resources
+                            </option>
+                            <option>Blog</option>
+                            <option>Bolt Gallery</option>
+                            <option>Status</option>
+                            <option>Discord</option>
+                        </select>
+                    </li>
+
+                    <li>Careers</li>
+
+                    <li>Pricing</li>
+
+                </ul>
+
+            </div>
+
+
+            <div class="link">
+
+                <span>🤖</span>
+                <span>𝕏</span>
+                <span>🔗</span>
+                <span>👾</span>
+
+                <button id="one">
+                    Sign In
+                </button>
+
+                <button id="two">
+                    Get Started
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- HERO -->
+    <div class="major">
+
+        <div class="one">
+
+            <center>
+
+                <h1>
+                    Smart
+                    <span>
+                        <i>Stock Insight</i>
+                    </span>
+                    Powered by AI.
+                </h1>
+
+            </center>
+
+        </div>
+
+
+        <div class="two">
+
+            <center>
+
+                <h3>
+                    Analyze stocks with real-time market data,
+                    financial metrics, and AI-powered insights.
+                </h3>
+
+            </center>
+
+        </div>
+
+    </div>
+
+
+    <!-- STOCK INPUT -->
+    <div class="text">
+
+        <div class="input">
+
+            <input
+                type="text"
+                class="data"
+                placeholder="Enter company or stock name (e.g. Apple, Tesla, Bitcoin)"
+                autocomplete="off"
+            >
+
+        </div>
+
+
+        <div class="bottom">
+
+            <button onclick="build_now()">
+                Analyze Stock →
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- LOADING -->
+    <div
+        class="loading-container"
+        style="display: none;"
+    >
+
+        <div class="loading">
+
+            <center>
+                ⏳ Fetching analysis... Please wait.
+            </center>
+
+        </div>
+
+    </div>
+
+
+    <!-- RESULT -->
+    <div
+        class="box"
+        id="resultBox"
+        style="display: none;"
+    >
+    </div>
+
+
+    <!-- COMPARE BUTTON -->
+    <button
+        id="compareStocksBtn"
+        class="compare-navigation-btn"
+    >
+        📊 Compare Two Stocks
+    </button>
+
+
+    <!-- PARTICLES.JS -->
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+
+
+    <!-- MARKED.JS -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+
+    <!-- MAIN JAVASCRIPT -->
+    <script src="script.js"></script>
+
+</body>
+
+</html>

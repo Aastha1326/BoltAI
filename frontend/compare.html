@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Bolt AI - Compare Stocks</title>
+
+    <link rel="stylesheet" href="compare.css">
+</head>
+
+<body>
+
+    <!-- Particle Background -->
+    <div id="particles-js"></div>
+
+
+    <!-- NAVBAR -->
+    <div class="navbar">
+
+        <div class="rec">
+
+            <img src="logo1.png" height="50px" width="60px">
+
+            <div class="compare-brand">
+                <span>BOLT AI</span>
+            </div>
+
+            <button id="backBtn" class="back-btn">
+                ← Back
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- MAIN -->
+    <main class="compare-main">
+
+        <section class="compare-heading">
+
+            <h1>
+                Compare <span>Stocks</span>
+            </h1>
+
+            <p>
+                Compare two stocks using financial metrics, valuation,
+                growth and risk.
+            </p>
+
+        </section>
+
+
+        <!-- STOCK INPUTS -->
+        <section class="input-section">
+
+            <div class="stock-card">
+
+                <div class="stock-number">
+                    STOCK 1
+                </div>
+
+                <h2>First Stock</h2>
+
+                <input
+                    type="text"
+                    id="stockOne"
+                    placeholder="Enter stock name or ticker"
+                    autocomplete="off"
+                >
+
+            </div>
+
+
+            <div class="vs">
+                VS
+            </div>
+
+
+            <div class="stock-card">
+
+                <div class="stock-number">
+                    STOCK 2
+                </div>
+
+                <h2>Second Stock</h2>
+
+                <input
+                    type="text"
+                    id="stockTwo"
+                    placeholder="Enter stock name or ticker"
+                    autocomplete="off"
+                >
+
+            </div>
+
+        </section>
+
+
+        <button id="compareBtn" class="compare-btn">
+            Compare Stocks ➜
+        </button>
+
+
+        <div id="errorMessage" class="error-message"></div>
+
+
+        <!-- LOADING -->
+        <div
+            id="loading"
+            class="loading"
+            style="display: none;"
+        >
+            ⏳ Comparing stocks... Please wait.
+        </div>
+
+
+        <!-- RESULT -->
+        <section
+            id="comparisonResult"
+            class="comparison-result"
+            style="display: none;"
+        >
+
+            <h2 id="resultTitle">
+                Stock Comparison
+            </h2>
+
+            <div id="resultContent"></div>
+
+        </section>
+
+    </main>
+
+
+    <script src="http://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script src="compare.js"></script>
+
+</body>
+
+</html>
