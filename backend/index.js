@@ -6,7 +6,12 @@ const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
 const { HumanMessage } = require("@langchain/core/messages");
 
 const YahooFinance = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({
+  queue: {
+    concurrency: 1,
+    interval: 1000
+  }
+});
 
 const app = express();
 
@@ -1446,16 +1451,8 @@ app.post("/compare", async (req, res) => {
     // STEP 1: GET REAL DATA FOR BOTH STOCKS
     // --------------------------------------------------------
 
-    const [
-      dataOne,
-      dataTwo
-    ] = await Promise.all([
-
-      getStockData(stockOne),
-
-      getStockData(stockTwo)
-
-    ]);
+    const dataOne = await getStockData(stockOne);
+    const dataTwo = await getStockData(stockTwo);
 
 
     console.log(
