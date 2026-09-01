@@ -6,10 +6,12 @@ const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
 const { HumanMessage } = require("@langchain/core/messages");
 
 const YahooFinance = require("yahoo-finance2").default;
+
 const yahooFinance = new YahooFinance({
+  suppressNotices: ["yahooSurvey", "ripHistorical"],
   queue: {
     concurrency: 1,
-    interval: 1000
+    interval: 1500
   }
 });
 
@@ -90,57 +92,43 @@ async function resolveSymbol(input) {
   const value = input.trim();
 
   if (!value) {
-
-    throw new Error(
-      "Stock name cannot be empty."
-    );
-
+    throw new Error("Stock name cannot be empty.");
   }
 
+  const possibleSymbol = value.toUpperCase();
 
-  const possibleSymbol =
-    value.toUpperCase();
+  // If the user entered a ticker, verify it ONCE
+  // and return the quote so it can be reused.
+  const looksLikeTicker =
+    /^[A-Z0-9][A-Z0-9.\-^=]{0,9}$/.test(possibleSymbol);
 
+  if (looksLikeTicker) {
 
-  // ----------------------------------------------------------
-  // FIRST: TRY INPUT DIRECTLY AS TICKER
-  // ----------------------------------------------------------
+    try {
 
-  try {
+      const quote =
+        await yahooFinance.quote(possibleSymbol);
 
-    const quote =
-      await yahooFinance.quote(
-        possibleSymbol
-      );
+      if (quote && quote.symbol) {
 
+        return {
+          symbol: quote.symbol,
+          quote: quote
+        };
 
-    if (
-      quote &&
-      quote.symbol
-    ) {
+      }
 
-      return quote.symbol;
-
+    } catch (error) {
+      // Continue to Yahoo search.
     }
-
-  } catch (error) {
-
-    // Continue to Yahoo search.
-
   }
 
-
-  // ----------------------------------------------------------
-  // SECOND: SEARCH BY COMPANY NAME
-  // ----------------------------------------------------------
-
+  // Company-name search
   const searchResult =
     await yahooFinance.search(value);
 
-
   const quotes =
     searchResult.quotes || [];
-
 
   const bestMatch =
     quotes.find(
@@ -149,11 +137,7 @@ async function resolveSymbol(input) {
         item.quoteType === "ETF"
     );
 
-
-  if (
-    !bestMatch ||
-    !bestMatch.symbol
-  ) {
+  if (!bestMatch || !bestMatch.symbol) {
 
     throw new Error(
       `Could not find a stock or ETF for "${input}".`
@@ -161,9 +145,10 @@ async function resolveSymbol(input) {
 
   }
 
-
-  return bestMatch.symbol;
-
+  return {
+    symbol: bestMatch.symbol,
+    quote: null
+  };
 }
 
 
@@ -289,6 +274,9 @@ function calculateReturn(
 // GET COMPLETE STOCK DATA FROM YAHOO FINANCE
 // ============================================================
 
+const stockDataCache = new Map();
+const STOCK_CACHE_TTL = 60 * 1000; // 60 seconds
+
 async function getStockData(input) {
 
   // ----------------------------------------------------------
@@ -300,20 +288,58 @@ async function getStockData(input) {
 
 
   // ----------------------------------------------------------
-  // RESOLVE SYMBOL
-  // ----------------------------------------------------------
+// RESOLVE SYMBOL
+// ----------------------------------------------------------
 
-  const symbol =
-    await resolveSymbol(input);
+const cacheKey =
+  input.trim().toLowerCase();
+
+const cached =
+  stockDataCache.get(cacheKey);
+
+if (
+  cached &&
+  Date.now() - cached.timestamp < STOCK_CACHE_TTL
+) {
+  return cached.data;
+}
 
 
-  // ----------------------------------------------------------
-  // CURRENT MARKET QUOTE
-  // ----------------------------------------------------------
+// ----------------------------------------------------------
+// RESOLVE SYMBOL
+// ----------------------------------------------------------
 
-  const quote =
-    await yahooFinance.quote(symbol);
+const resolved =
+  await resolveSymbol(input);
 
+const symbol =
+  resolved.symbol;
+
+
+// ----------------------------------------------------------
+// CURRENT MARKET QUOTE
+// ----------------------------------------------------------
+
+let quote =
+  resolved.quote || {};
+
+if (!quote.symbol) {
+
+  try {
+
+    quote =
+      await yahooFinance.quote(symbol);
+
+  } catch (error) {
+
+    console.warn(
+      `Current quote unavailable for ${symbol}:`,
+      error.message
+    );
+
+  }
+
+}
 
   // ----------------------------------------------------------
   // FUNDAMENTAL DATA
@@ -390,15 +416,18 @@ async function getStockData(input) {
     );
 
 
-    historical =
-      await yahooFinance.historical(
-        symbol,
-        {
-          period1,
-          period2,
-          interval: "1d"
-        }
-      );
+    const chartData =
+  await yahooFinance.chart(
+    symbol,
+    {
+      period1,
+      period2,
+      interval: "1d"
+    }
+  );
+
+historical =
+  chartData.quotes || [];
 
   } catch (error) {
 
@@ -433,7 +462,7 @@ async function getStockData(input) {
   // RETURN STRUCTURED STOCK DATA
   // ==========================================================
 
-  return {
+  const stockData= {
 
     // --------------------------------------------------------
     // ANALYSIS TIMESTAMP
@@ -651,6 +680,13 @@ async function getStockData(input) {
     }
 
   };
+
+  stockDataCache.set(cacheKey, {
+    timestamp: Date.now(),
+    data: stockData
+});
+
+return stockData;
 
 }
 
