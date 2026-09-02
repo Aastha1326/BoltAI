@@ -2,211 +2,66 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
-const {
-  ChatGoogleGenerativeAI
-} = require("@langchain/google-genai");
+const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
+const { HumanMessage } = require("@langchain/core/messages");
 
-const {
-  HumanMessage
-} = require("@langchain/core/messages");
+const YahooFinance = require("yahoo-finance2").default;
 
-
-// ============================================================
-// APP CONFIGURATION
-// ============================================================
+const yahooFinance = new YahooFinance({
+  suppressNotices: ["yahooSurvey", "ripHistorical"],
+  queue: {
+    concurrency: 1,
+    interval: 1500
+  }
+});
 
 const app = express();
 
-const port =
-  process.env.PORT || 3001;
+const port = process.env.PORT || 3001;
 
 app.use(cors());
-
 app.use(express.json());
-
-
-// ============================================================
-// FINNHUB CONFIGURATION
-// ============================================================
-
-const FINNHUB_API_KEY =
-  process.env.FINNHUB_API_KEY;
-
-const FINNHUB_BASE_URL =
-  "https://finnhub.io/api/v1";
-
-
-if (!FINNHUB_API_KEY) {
-
-  console.warn(
-    "WARNING: FINNHUB_API_KEY is not configured."
-  );
-
-}
-
-
-// ============================================================
-// FINNHUB REQUEST HELPER
-// ============================================================
-
-async function finnhubGet(
-  endpoint,
-  params = {}
-) {
-
-  if (!FINNHUB_API_KEY) {
-
-    throw new Error(
-      "FINNHUB_API_KEY is missing from environment variables."
-    );
-
-  }
-
-
-  const url =
-    new URL(
-      `${FINNHUB_BASE_URL}${endpoint}`
-    );
-
-
-  Object.entries(params).forEach(
-    ([key, value]) => {
-
-      if (
-        value !== undefined &&
-        value !== null
-      ) {
-
-        url.searchParams.set(
-          key,
-          String(value)
-        );
-
-      }
-
-    }
-  );
-
-
-  url.searchParams.set(
-    "token",
-    FINNHUB_API_KEY
-  );
-
-
-  const response =
-    await fetch(url);
-
-
-  const text =
-    await response.text();
-
-
-  let data = {};
-
-
-  try {
-
-    data =
-      text
-        ? JSON.parse(text)
-        : {};
-
-  } catch {
-
-    data = {};
-
-  }
-
-
-  if (!response.ok) {
-
-    throw new Error(
-      data.error ||
-      data.message ||
-      `Finnhub HTTP ${response.status}`
-    );
-
-  }
-
-
-  if (
-    data &&
-    typeof data === "object" &&
-    data.error
-  ) {
-
-    throw new Error(
-      data.error
-    );
-
-  }
-
-
-  return data;
-
-}
 
 
 // ============================================================
 // GEMINI MODEL
 // ============================================================
 
-const model =
-  new ChatGoogleGenerativeAI({
-
-    model:
-      "gemini-2.5-flash",
-
-    temperature:
-      0.2,
-
-    apiKey:
-      process.env.apikey
-
-  });
+const model = new ChatGoogleGenerativeAI({
+  model: "gemini-2.5-flash",
+  temperature: 0.2,
+  apiKey: process.env.apikey
+});
 
 
 // ============================================================
-// CURRENT DATE / TIME
+// CURRENT ANALYSIS DATE & TIME
 // ============================================================
 
 function getCurrentDateTime() {
 
-  const now =
-    new Date();
-
+  const now = new Date();
 
   return {
 
-    date:
-      now.toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "long",
-          year: "numeric",
-          timeZone: "Asia/Kolkata"
-        }
-      ),
+    date: now.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      timeZone: "Asia/Kolkata"
+    }),
 
-    time:
-      now.toLocaleTimeString(
-        "en-IN",
-        {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: true,
-          timeZone: "Asia/Kolkata"
-        }
-      ),
+    time: now.toLocaleTimeString("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+      timeZone: "Asia/Kolkata"
+    }),
 
-    timezone:
-      "IST (Asia/Kolkata)",
+    timezone: "IST (Asia/Kolkata)",
 
-    iso:
-      now.toISOString()
+    iso: now.toISOString()
 
   };
 
@@ -217,274 +72,88 @@ function getCurrentDateTime() {
 // HOME ROUTE
 // ============================================================
 
-app.get(
-  "/",
-  (req, res) => {
+app.get("/", (req, res) => {
 
-    res.json({
+  res.json({
 
-      message:
-        "Bolt AI Finance API is running.",
+    message: "Bolt AI Finance API is running."
 
-      dataProvider:
-        "Finnhub",
+  });
 
-      status:
-        "online"
-
-    });
-
-  }
-);
+});
 
 
 // ============================================================
-// SYMBOL CACHE
+// HELPER: FIND STOCK SYMBOL
 // ============================================================
 
-const symbolCache =
-  new Map();
+async function resolveSymbol(input) {
 
-
-// ============================================================
-// RESOLVE STOCK SYMBOL
-// ============================================================
-
-async function resolveSymbol(
-  input
-) {
-
-  const value =
-    input.trim();
-
+  const value = input.trim();
 
   if (!value) {
-
-    throw new Error(
-      "Stock name cannot be empty."
-    );
-
+    throw new Error("Stock name cannot be empty.");
   }
 
+  const possibleSymbol = value.toUpperCase();
 
-  const upper =
-    value.toUpperCase();
+  // If the user entered a ticker, verify it ONCE
+  // and return the quote so it can be reused.
+  const looksLikeTicker =
+    /^[A-Z0-9][A-Z0-9.\-^=]{0,9}$/.test(possibleSymbol);
 
-
-  // ----------------------------------------------------------
-  // TRY AS DIRECT SYMBOL
-  // ----------------------------------------------------------
-
-  if (
-    /^[A-Z][A-Z0-9.\-]{0,9}$/.test(
-      upper
-    )
-  ) {
+  if (looksLikeTicker) {
 
     try {
 
-      const profile =
-        await finnhubGet(
-          "/stock/profile2",
-          {
-            symbol: upper
-          }
-        );
+      const quote =
+        await yahooFinance.quote(possibleSymbol);
 
-
-      if (
-        profile &&
-        profile.ticker
-      ) {
+      if (quote && quote.symbol) {
 
         return {
-
-          symbol:
-            profile.ticker,
-
-          profile
-
+          symbol: quote.symbol,
+          quote: quote
         };
 
       }
 
-    } catch {
-
-      // Continue to search.
+    } catch (error) {
+      // Continue to Yahoo search.
     }
-
   }
 
+  // Company-name search
+  const searchResult =
+    await yahooFinance.search(value);
 
-  // ----------------------------------------------------------
-  // SEARCH COMPANY NAME
-  // ----------------------------------------------------------
-
-  const cached =
-    symbolCache.get(
-      value.toLowerCase()
-    );
-
-
-  if (cached) {
-
-    return cached;
-
-  }
-
-
-  const result =
-    await finnhubGet(
-      "/search",
-      {
-        q: value
-      }
-    );
-
-
-  const results =
-    Array.isArray(
-      result.result
-    )
-      ? result.result
-      : [];
-
-
-  const equity =
-    results.find(
-      item =>
-        item.type ===
-        "Common Stock"
-    );
-
+  const quotes =
+    searchResult.quotes || [];
 
   const bestMatch =
-    equity ||
-    results[0];
+    quotes.find(
+      (item) =>
+        item.quoteType === "EQUITY" ||
+        item.quoteType === "ETF"
+    );
 
-
-  if (
-    !bestMatch ||
-    !bestMatch.symbol
-  ) {
+  if (!bestMatch || !bestMatch.symbol) {
 
     throw new Error(
-      `Could not find a stock for "${input}".`
+      `Could not find a stock or ETF for "${input}".`
     );
 
   }
 
-
-  const symbol =
-    bestMatch.symbol;
-
-
-  let profile = {};
-
-
-  try {
-
-    profile =
-      await finnhubGet(
-        "/stock/profile2",
-        {
-          symbol
-        }
-      );
-
-  } catch {
-
-    profile = {};
-
-  }
-
-
-  const resolved = {
-
-    symbol,
-
-    profile
-
+  return {
+    symbol: bestMatch.symbol,
+    quote: null
   };
-
-
-  symbolCache.set(
-    value.toLowerCase(),
-    resolved
-  );
-
-
-  return resolved;
-
 }
 
 
 // ============================================================
-// NUMBER HELPER
-// ============================================================
-
-function firstNumber(
-  ...values
-) {
-
-  for (
-    const value of values
-  ) {
-
-    if (
-      typeof value === "number" &&
-      Number.isFinite(value)
-    ) {
-
-      return value;
-
-    }
-
-  }
-
-
-  return null;
-
-}
-
-
-// ============================================================
-// PERCENTAGE HELPER
-// ============================================================
-
-function percentage(
-  value
-) {
-
-  if (
-    value === null ||
-    value === undefined ||
-    !Number.isFinite(
-      Number(value)
-    )
-  ) {
-
-    return null;
-
-  }
-
-
-  const number =
-    Number(value);
-
-
-  return Number(
-    (
-      number *
-      100
-    ).toFixed(2)
-  );
-
-}
-
-
-// ============================================================
-// HISTORICAL RETURN
+// HELPER: CALCULATE HISTORICAL RETURN
 // ============================================================
 
 function calculateReturn(
@@ -503,15 +172,14 @@ function calculateReturn(
 
 
   const latest =
-    historical[
-      historical.length - 1
-    ];
+    historical[historical.length - 1];
 
 
   if (
     !latest ||
     latest.close === null ||
-    latest.close === undefined
+    latest.close === undefined ||
+    latest.close === 0
   ) {
 
     return null;
@@ -519,27 +187,17 @@ function calculateReturn(
   }
 
 
-  const target =
+  const targetDate =
     new Date();
 
 
-  target.setMonth(
-    target.getMonth() -
-    monthsAgo
+  targetDate.setMonth(
+    targetDate.getMonth() - monthsAgo
   );
 
 
   let closest =
     historical[0];
-
-
-  let closestDifference =
-    Math.abs(
-      new Date(
-        closest.date
-      ) -
-      target
-    );
 
 
   for (
@@ -557,25 +215,26 @@ function calculateReturn(
     }
 
 
-    const difference =
+    const currentDifference =
       Math.abs(
-        new Date(
-          item.date
-        ) -
-        target
+        new Date(item.date) -
+        targetDate
+      );
+
+
+    const closestDifference =
+      Math.abs(
+        new Date(closest.date) -
+        targetDate
       );
 
 
     if (
-      difference <
+      currentDifference <
       closestDifference
     ) {
 
-      closest =
-        item;
-
-      closestDifference =
-        difference;
+      closest = item;
 
     }
 
@@ -584,7 +243,9 @@ function calculateReturn(
 
   if (
     !closest ||
-    !closest.close
+    closest.close === null ||
+    closest.close === undefined ||
+    closest.close === 0
   ) {
 
     return null;
@@ -593,6 +254,7 @@ function calculateReturn(
 
 
   return Number(
+
     (
       (
         (
@@ -600,173 +262,73 @@ function calculateReturn(
           closest.close
         ) /
         closest.close
-      ) *
-      100
+      ) * 100
     ).toFixed(2)
+
   );
 
 }
 
 
 // ============================================================
-// GET HISTORICAL DATA
+// GET COMPLETE STOCK DATA FROM YAHOO FINANCE
 // ============================================================
 
-async function getHistoricalData(
-  symbol
-) {
+const stockDataCache = new Map();
+const STOCK_CACHE_TTL = 60 * 1000; // 60 seconds
 
-  const period2 =
-    Math.floor(
-      Date.now() / 1000
-    );
+async function getStockData(input) {
 
-
-  const period1 =
-    Math.floor(
-      (
-        Date.now() -
-        (
-          5 *
-          365 *
-          24 *
-          60 *
-          60 *
-          1000
-        )
-      ) / 1000
-    );
-
-
-  try {
-
-    const candles =
-      await finnhubGet(
-        "/stock/candle",
-        {
-
-          symbol,
-
-          resolution:
-            "D",
-
-          from:
-            period1,
-
-          to:
-            period2
-
-        }
-      );
-
-
-    if (
-      !candles ||
-      candles.s !== "ok" ||
-      !Array.isArray(
-        candles.t
-      )
-    ) {
-
-      return [];
-
-    }
-
-
-    const historical =
-      candles.t.map(
-        (timestamp, index) => ({
-
-          date:
-            new Date(
-              timestamp * 1000
-            ),
-
-          close:
-            candles.c[index]
-
-        })
-      );
-
-
-    return historical
-      .filter(
-        item =>
-          item.close !== null &&
-          item.close !== undefined
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.date) -
-          new Date(b.date)
-      );
-
-  } catch (error) {
-
-    console.warn(
-      `Historical data unavailable for ${symbol}:`,
-      error.message
-    );
-
-
-    return [];
-
-  }
-
-}
-
-
-// ============================================================
-// GET COMPLETE STOCK DATA
-// ============================================================
-
-async function getStockData(
-  input
-) {
+  // ----------------------------------------------------------
+  // ANALYSIS TIMESTAMP
+  // ----------------------------------------------------------
 
   const analysisDateTime =
     getCurrentDateTime();
 
 
   // ----------------------------------------------------------
-  // RESOLVE SYMBOL
-  // ----------------------------------------------------------
+// RESOLVE SYMBOL
+// ----------------------------------------------------------
 
-  const resolved =
-    await resolveSymbol(
-      input
-    );
+const cacheKey =
+  input.trim().toLowerCase();
 
+const cached =
+  stockDataCache.get(cacheKey);
 
-  const symbol =
-    resolved.symbol;
-
-
-  const profile =
-    resolved.profile || {};
-
-
-  console.log(
-    `Getting Finnhub data for ${symbol}`
-  );
+if (
+  cached &&
+  Date.now() - cached.timestamp < STOCK_CACHE_TTL
+) {
+  return cached.data;
+}
 
 
-  // ----------------------------------------------------------
-  // CURRENT QUOTE
-  // ----------------------------------------------------------
+// ----------------------------------------------------------
+// RESOLVE SYMBOL
+// ----------------------------------------------------------
 
-  let quote = {};
+const resolved =
+  await resolveSymbol(input);
 
+const symbol =
+  resolved.symbol;
+
+
+// ----------------------------------------------------------
+// CURRENT MARKET QUOTE
+// ----------------------------------------------------------
+
+let quote =
+  resolved.quote || {};
+
+if (!quote.symbol) {
 
   try {
 
     quote =
-      await finnhubGet(
-        "/quote",
-        {
-          symbol
-        }
-      );
+      await yahooFinance.quote(symbol);
 
   } catch (error) {
 
@@ -777,38 +339,100 @@ async function getStockData(
 
   }
 
+}
 
   // ----------------------------------------------------------
-  // BASIC FINANCIALS
+  // FUNDAMENTAL DATA
   // ----------------------------------------------------------
 
-  let metrics = {};
+  let summary = {};
 
 
   try {
 
-    const financialData =
-      await finnhubGet(
-        "/stock/metric",
+    summary =
+      await yahooFinance.quoteSummary(
+        symbol,
         {
-
-          symbol,
-
-          metric:
-            "all"
-
+          modules: [
+            "price",
+            "summaryDetail",
+            "defaultKeyStatistics",
+            "financialData",
+            "assetProfile"
+          ]
         }
       );
-
-
-    metrics =
-      financialData.metric ||
-      {};
 
   } catch (error) {
 
     console.warn(
-      `Financial metrics unavailable for ${symbol}:`,
+      `Fundamental data partially unavailable for ${symbol}:`,
+      error.message
+    );
+
+  }
+
+
+  const price =
+    summary.price || {};
+
+
+  const summaryDetail =
+    summary.summaryDetail || {};
+
+
+  const statistics =
+    summary.defaultKeyStatistics || {};
+
+
+  const financial =
+    summary.financialData || {};
+
+
+  const profile =
+    summary.assetProfile || {};
+
+
+  // ----------------------------------------------------------
+  // HISTORICAL PRICE DATA
+  // ----------------------------------------------------------
+
+  let historical = [];
+
+
+  try {
+
+    const period2 =
+      new Date();
+
+
+    const period1 =
+      new Date();
+
+
+    period1.setFullYear(
+      period1.getFullYear() - 5
+    );
+
+
+    const chartData =
+  await yahooFinance.chart(
+    symbol,
+    {
+      period1,
+      period2,
+      interval: "1d"
+    }
+  );
+
+historical =
+  chartData.quotes || [];
+
+  } catch (error) {
+
+    console.warn(
+      `Historical data unavailable for ${symbol}:`,
       error.message
     );
 
@@ -816,311 +440,33 @@ async function getStockData(
 
 
   // ----------------------------------------------------------
-  // HISTORICAL DATA
+  // CLEAN HISTORICAL DATA
   // ----------------------------------------------------------
 
-  const historical =
-    await getHistoricalData(
-      symbol
-    );
-
-
-  // ----------------------------------------------------------
-  // MARKET DATA
-  // ----------------------------------------------------------
-
-  const marketPrice =
-    firstNumber(
-      quote.c
-    );
-
-
-  const previousClose =
-    firstNumber(
-      quote.pc
-    );
-
-
-  const marketChange =
-    marketPrice !== null &&
-    previousClose !== null
-      ? Number(
-          (
-            marketPrice -
-            previousClose
-          ).toFixed(4)
-        )
-      : null;
-
-
-  const marketChangePercent =
-    marketPrice !== null &&
-    previousClose !== null &&
-    previousClose !== 0
-      ? Number(
-          (
-            (
-              (
-                marketPrice -
-                previousClose
-              ) /
-              previousClose
-            ) *
-            100
-          ).toFixed(2)
-        )
-      : null;
-
-
-  // ----------------------------------------------------------
-  // METRIC MAPPINGS
-  // ----------------------------------------------------------
-
-  const eps =
-    firstNumber(
-      metrics.epsTTM,
-      metrics.epsBasicExclExtraItemsTTM,
-      metrics.epsBasicExclExtraItemsAnnual
-    );
-
-
-  const peRatio =
-    firstNumber(
-      metrics.peTTM,
-      metrics.peBasicTTM
-    );
-
-
-  const forwardPE =
-    firstNumber(
-      metrics.peForwardTTM
-    );
-
-
-  const priceToBook =
-    firstNumber(
-      metrics.pbQuarterly,
-      metrics.pbAnnual
-    );
-
-
-  const bookValue =
-    firstNumber(
-      metrics.bookValuePerShareQuarterly,
-      metrics.bookValuePerShareAnnual
-    );
-
-
-  const priceToSales =
-    firstNumber(
-      metrics.psTTM,
-      metrics.psAnnual
-    );
-
-
-  const enterpriseToEBITDA =
-    firstNumber(
-      metrics.evToEbitdaTTM,
-      metrics.evToEbitdaAnnual
-    );
-
-
-  const debtToEquity =
-    firstNumber(
-      metrics.totalDebtToEquityQuarterly,
-      metrics.totalDebtToEquityAnnual
-    );
-
-
-  const currentRatio =
-    firstNumber(
-      metrics.currentRatioQuarterly,
-      metrics.currentRatioAnnual
-    );
-
-
-  const returnOnEquity =
-    percentage(
-      firstNumber(
-        metrics.roeTTM,
-        metrics.roeAnnual
+  historical =
+    historical
+      .filter(
+        (item) =>
+          item &&
+          item.close !== null &&
+          item.close !== undefined
       )
-    );
+      .sort(
+        (a, b) =>
+          new Date(a.date) -
+          new Date(b.date)
+      );
 
 
-  const returnOnAssets =
-    percentage(
-      firstNumber(
-        metrics.roaTTM,
-        metrics.roaAnnual
-      )
-    );
+  // ==========================================================
+  // RETURN STRUCTURED STOCK DATA
+  // ==========================================================
 
+  const stockData= {
 
-  const grossMargins =
-    percentage(
-      firstNumber(
-        metrics.grossMarginTTM,
-        metrics.grossMarginAnnual
-      )
-    );
-
-
-  const operatingMargins =
-    percentage(
-      firstNumber(
-        metrics.operatingMarginTTM,
-        metrics.operatingMarginAnnual
-      )
-    );
-
-
-  const profitMargins =
-    percentage(
-      firstNumber(
-        metrics.netProfitMarginTTM,
-        metrics.netProfitMarginAnnual
-      )
-    );
-
-
-  const revenueGrowth =
-    percentage(
-      firstNumber(
-        metrics.revenueGrowthTTMYoy,
-        metrics.revenueGrowth3Y
-      )
-    );
-
-
-  const earningsGrowth =
-    percentage(
-      firstNumber(
-        metrics.epsGrowthTTMYoy,
-        metrics.epsGrowth3Y
-      )
-    );
-
-
-  // ----------------------------------------------------------
-  // DIVIDEND
-  // ----------------------------------------------------------
-
-  const dividendYield =
-    percentage(
-      firstNumber(
-        metrics.dividendYieldIndicatedAnnual,
-        metrics.dividendYieldTTM
-      )
-    );
-
-
-  // ----------------------------------------------------------
-  // MARKET CAP
-  // ----------------------------------------------------------
-
-  const marketCap =
-    firstNumber(
-      metrics.marketCapitalization
-    );
-
-
-  // Finnhub market capitalization is generally
-  // expressed in millions.
-  const marketCapValue =
-    marketCap !== null
-      ? marketCap * 1000000
-      : null;
-
-
-  // ----------------------------------------------------------
-  // 52 WEEK DATA
-  // ----------------------------------------------------------
-
-  const fiftyTwoWeekHigh =
-    firstNumber(
-      metrics["52WeekHigh"],
-      metrics["52WeekHigh.annual"]
-    );
-
-
-  const fiftyTwoWeekLow =
-    firstNumber(
-      metrics["52WeekLow"],
-      metrics["52WeekLow.annual"]
-    );
-
-
-  // ----------------------------------------------------------
-  // VOLUME
-  // ----------------------------------------------------------
-
-  const volume =
-    firstNumber(
-      quote.v
-    );
-
-
-  // ----------------------------------------------------------
-  // CASH FLOW / FINANCIAL DATA
-  // ----------------------------------------------------------
-
-  const freeCashFlow =
-    firstNumber(
-      metrics.freeCashFlowTTM
-    );
-
-
-  const operatingCashFlow =
-    firstNumber(
-      metrics.operatingCashFlowTTM
-    );
-
-
-  // ----------------------------------------------------------
-  // HISTORICAL PERFORMANCE
-  // ----------------------------------------------------------
-
-  const performance = {
-
-    oneMonth:
-      calculateReturn(
-        historical,
-        1
-      ),
-
-    sixMonths:
-      calculateReturn(
-        historical,
-        6
-      ),
-
-    oneYear:
-      calculateReturn(
-        historical,
-        12
-      ),
-
-    threeYears:
-      calculateReturn(
-        historical,
-        36
-      ),
-
-    fiveYears:
-      calculateReturn(
-        historical,
-        60
-      )
-
-  };
-
-
-  // ----------------------------------------------------------
-  // FINAL STRUCTURED OBJECT
-  // ----------------------------------------------------------
-
-  return {
+    // --------------------------------------------------------
+    // ANALYSIS TIMESTAMP
+    // --------------------------------------------------------
 
     analysisDate:
       analysisDateTime.date,
@@ -1135,177 +481,303 @@ async function getStockData(
       analysisDateTime.iso,
 
 
+    // --------------------------------------------------------
+    // BASIC INFORMATION
+    // --------------------------------------------------------
+
     symbol,
 
-
     companyName:
-      profile.name ||
+      quote.longName ||
+      quote.shortName ||
+      price.longName ||
+      price.shortName ||
       symbol,
 
-
     assetType:
-      profile.exchange
-        ? "EQUITY"
-        : "UNKNOWN",
-
+      quote.quoteType ||
+      "EQUITY",
 
     sector:
-      profile.finnhubIndustry ||
+      profile.sector ||
       "Data unavailable",
-
 
     industry:
-      profile.finnhubIndustry ||
+      profile.industry ||
       "Data unavailable",
-
 
     description:
-      profile.name
-        ? `${profile.name} is a publicly traded company listed on ${profile.exchange || "a supported exchange"}.`
-        : "Data unavailable",
-
-
-    exchange:
-      profile.exchange ||
+      profile.longBusinessSummary ||
       "Data unavailable",
 
-
     currency:
-      profile.currency ||
-      "USD",
+      quote.currency ||
+      "Unknown",
 
 
-    marketPrice,
+    // ========================================================
+    // MARKET DATA
+    // ========================================================
 
+    marketPrice:
+      quote.regularMarketPrice ??
+      null,
 
-    marketChange,
+    marketChange:
+      quote.regularMarketChange ??
+      null,
 
-
-    marketChangePercent,
-
+    marketChangePercent:
+      quote.regularMarketChangePercent ??
+      null,
 
     marketCap:
-      marketCapValue,
+      quote.marketCap ??
+      null,
 
+    fiftyTwoWeekHigh:
+      quote.fiftyTwoWeekHigh ??
+      null,
 
-    fiftyTwoWeekHigh,
+    fiftyTwoWeekLow:
+      quote.fiftyTwoWeekLow ??
+      null,
 
-
-    fiftyTwoWeekLow,
-
-
-    volume,
-
+    volume:
+      quote.regularMarketVolume ??
+      null,
 
     averageVolume:
+      quote.averageDailyVolume3Month ??
+      null,
+
+    dividendYield:
+      summaryDetail.dividendYield ??
       null,
 
 
-    dividendYield,
+    // ========================================================
+    // VALUATION
+    // ========================================================
+
+    eps:
+      statistics.trailingEps ??
+      financial.trailingEps ??
+      null,
+
+    peRatio:
+      summaryDetail.trailingPE ??
+      statistics.trailingPE ??
+      null,
+
+    forwardPE:
+      summaryDetail.forwardPE ??
+      statistics.forwardPE ??
+      null,
+
+    priceToBook:
+      statistics.priceToBook ??
+      null,
+
+    bookValue:
+      statistics.bookValue ??
+      null,
+
+    priceToSales:
+      statistics.priceToSalesTrailing12Months ??
+      null,
+
+    enterpriseToEBITDA:
+      statistics.enterpriseToEbitda ??
+      null,
 
 
-    eps,
+    // ========================================================
+    // FINANCIAL HEALTH
+    // ========================================================
+
+    debtToEquity:
+      financial.debtToEquity ??
+      null,
+
+    currentRatio:
+      financial.currentRatio ??
+      null,
+
+    returnOnEquity:
+      financial.returnOnEquity ??
+      null,
+
+    returnOnAssets:
+      financial.returnOnAssets ??
+      null,
+
+    profitMargins:
+      financial.profitMargins ??
+      null,
+
+    operatingMargins:
+      financial.operatingMargins ??
+      null,
+
+    grossMargins:
+      financial.grossMargins ??
+      null,
+
+    revenueGrowth:
+      financial.revenueGrowth ??
+      null,
+
+    earningsGrowth:
+      financial.earningsGrowth ??
+      null,
+
+    freeCashFlow:
+      financial.freeCashflow ??
+      null,
+
+    operatingCashFlow:
+      financial.operatingCashflow ??
+      null,
 
 
-    peRatio,
+    // ========================================================
+    // HISTORICAL PERFORMANCE
+    // ========================================================
 
+    performance: {
 
-    forwardPE,
+      oneMonth:
+        calculateReturn(
+          historical,
+          1
+        ),
 
+      sixMonths:
+        calculateReturn(
+          historical,
+          6
+        ),
 
-    priceToBook,
+      oneYear:
+        calculateReturn(
+          historical,
+          12
+        ),
 
+      threeYears:
+        calculateReturn(
+          historical,
+          36
+        ),
 
-    bookValue,
+      fiveYears:
+        calculateReturn(
+          historical,
+          60
+        )
 
-
-    priceToSales,
-
-
-    enterpriseToEBITDA,
-
-
-    debtToEquity,
-
-
-    currentRatio,
-
-
-    returnOnEquity,
-
-
-    returnOnAssets,
-
-
-    profitMargins,
-
-
-    operatingMargins,
-
-
-    grossMargins,
-
-
-    revenueGrowth,
-
-
-    earningsGrowth,
-
-
-    freeCashFlow,
-
-
-    operatingCashFlow,
-
-
-    performance
+    }
 
   };
+
+  stockDataCache.set(cacheKey, {
+    timestamp: Date.now(),
+    data: stockData
+});
+
+return stockData;
 
 }
 
 
 // ============================================================
-// GEMINI SINGLE STOCK PROMPT
+// GEMINI PROMPT — SINGLE STOCK
 // ============================================================
 
-function createSingleStockPrompt(
-  stock
-) {
+function createSingleStockPrompt(stock) {
 
   return `
 
 You are Bolt AI, an experienced equity research analyst.
 
-Analyze ONE investment asset using ONLY the verified data supplied below.
+You are analyzing ONE investment asset using VERIFIED market and financial data retrieved from Yahoo Finance.
 
-Do not invent financial numbers.
+Your role is to interpret and structure the supplied data.
 
-Do not retrieve additional financial data.
+You MUST NOT invent, estimate, guess, or retrieve additional financial numbers.
 
-If a value is null, write "Data unavailable".
-
-Do not guarantee profits or returns.
-
-Historical performance does not guarantee future performance.
-
-Investment Safety Score is an analytical rating and NOT a probability of profit.
-
-Clearly separate factual information from interpretation.
 
 ============================================================
 SOURCE DATA
 ============================================================
 
-${JSON.stringify(
-  stock,
-  null,
-  2
-)}
+${JSON.stringify(stock, null, 2)}
+
+
+============================================================
+STRICT DATA RULES
+============================================================
+
+1. Use ONLY the data provided above for numerical values.
+
+2. Never invent or estimate missing financial figures.
+
+3. If a value is null or unavailable, write "Data unavailable".
+
+4. Do not use your own memory for current prices or financial ratios.
+
+5. Historical performance does not guarantee future performance.
+
+6. Never guarantee profit or investment returns.
+
+7. Investment Safety Score is an analytical rating, NOT a probability of profit.
+
+8. Clearly separate factual data from your interpretation.
+
+9. Do not create unsupported target prices.
+
+10. Do not claim a precise fair value unless sufficient evidence exists.
+
+11. Do not call a stock undervalued or overvalued solely because of one ratio.
+
+12. Consider valuation, profitability, growth, financial health and risk together.
+
+13. The fields analysisDate, analysisTime and analysisTimezone are generated by the backend.
+
+14. Use the supplied analysisDate as the actual Date of Analysis.
+
+15. Use the supplied analysisTime and analysisTimezone as the actual Analysis Time.
+
+16. NEVER invent or infer a different analysis date.
+
+17. NEVER use an old date from your training data as the Date of Analysis.
+
+18. The Date of Analysis is different from the date of the latest available market trading session.
+
+19. Do not change the numerical values supplied by Yahoo Finance.
+
+
+============================================================
+FORMATTING RULES
+============================================================
+
+The response will be displayed on a website using Markdown.
+
+Therefore:
+
+- Use Markdown headings.
+- Use Markdown tables for numerical information.
+- Keep explanations outside the tables.
+- Use bold text for important conclusions.
+- Keep the report professional and easy to scan.
+- Do not turn the report into one large paragraph.
+
 
 ============================================================
 REQUIRED REPORT
 ============================================================
+
 
 # ${stock.symbol} — ${stock.companyName}
 
@@ -1313,9 +785,12 @@ REQUIRED REPORT
 
 **Analysis Time:** ${stock.analysisTime} ${stock.analysisTimezone}
 
-Give a short 2–3 sentence overview.
+Start with a short 2–3 sentence overview of the company and its current investment profile.
+
 
 ## 1. COMPANY / ASSET OVERVIEW
+
+Create this table:
 
 | Metric | Value |
 |---|---|
@@ -1326,13 +801,16 @@ Give a short 2–3 sentence overview.
 | Industry | |
 | Currency | |
 
-Explain what the company does.
+Then briefly explain what the company does.
+
 
 ## 2. CURRENT MARKET STATUS
 
+MUST use this table:
+
 | Market Metric | Value |
 |---|---:|
-| Current Market Price | |
+| Current Market Price (MPS) | |
 | Market Cap | |
 | 52-Week High | |
 | 52-Week Low | |
@@ -1342,9 +820,16 @@ Explain what the company does.
 | Daily Change | |
 | Daily Change % | |
 
-Refer to the latest available market price. Do not call it tick-by-tick real-time.
+After the table, briefly explain the current market position.
+
+Do not claim that the price is tick-by-tick real-time.
+
+If appropriate, refer to it as the "latest available market price."
+
 
 ## 3. VALUATION METRICS
+
+MUST use this table:
 
 | Valuation Metric | Value |
 |---|---:|
@@ -1356,11 +841,27 @@ Refer to the latest available market price. Do not call it tick-by-tick real-tim
 | Price / Sales | |
 | EV / EBITDA | |
 
+Then provide:
+
 **Valuation Assessment:** UNDERVALUED / FAIRLY VALUED / OVERVALUED / INSUFFICIENT DATA
 
-Explain using multiple available metrics.
+Explain the assessment using the available valuation metrics.
+
+Pay particular attention to:
+
+- EPS
+- P/E
+- Forward P/E
+- P/B
+- Book Value
+- Growth
+
+Do not assume a lower P/E automatically means the stock is better.
+
 
 ## 4. FINANCIAL HEALTH
+
+MUST use this table:
 
 | Financial Metric | Value |
 |---|---:|
@@ -1376,9 +877,16 @@ Explain using multiple available metrics.
 | Operating Cash Flow | |
 | Free Cash Flow | |
 
+Then provide:
+
 **Financial Health:** STRONG / MODERATE / WEAK / INSUFFICIENT DATA
 
+Explain the most important strengths and weaknesses.
+
+
 ## 5. HISTORICAL PERFORMANCE
+
+MUST use this table:
 
 | Period | Return |
 |---|---:|
@@ -1388,11 +896,16 @@ Explain using multiple available metrics.
 | 3 Years | |
 | 5 Years | |
 
+Then explain the overall historical trend in 2–4 sentences.
+
 Always state:
 
 **Past performance does not guarantee future returns.**
 
+
 ## 6. GROWTH OUTLOOK
+
+Use a small assessment table:
 
 | Growth Factor | Assessment |
 |---|---|
@@ -1402,7 +915,12 @@ Always state:
 | Cash Flow | |
 | Overall Growth Potential | HIGH / MEDIUM / LOW |
 
+Then explain the main factors supporting or limiting growth.
+
+
 ## 7. RISK ANALYSIS
+
+Use this table:
 
 | Risk Category | Level |
 |---|---|
@@ -1413,7 +931,12 @@ Always state:
 | Business Risk | Low / Moderate / High |
 | Overall Risk | LOW / MODERATE / HIGH |
 
+Then briefly explain the most important risks.
+
+
 ## 8. INVESTMENT SCORECARD
+
+Use this table:
 
 | Category | Assessment |
 |---|---|
@@ -1428,9 +951,14 @@ Always state:
 | Profit Potential | Low / Moderate / High |
 | Confidence in Assessment | XX% |
 
-The Safety Score is an analytical score and NOT a probability of profit.
+The Investment Safety Score must be an analytical score based on the available evidence.
+
+It is NOT a probability of profit.
+
 
 ## 9. KEY STRENGTHS & WEAKNESSES
+
+Create this table:
 
 | Strengths | Weaknesses |
 |---|---|
@@ -1438,7 +966,12 @@ The Safety Score is an analytical score and NOT a probability of profit.
 | | |
 | | |
 
+Keep each point short.
+
+
 ## 10. FINAL CONCLUSION
+
+Create this final summary table:
 
 | Final Metric | Assessment |
 |---|---|
@@ -1454,12 +987,13 @@ The Safety Score is an analytical score and NOT a probability of profit.
 | Recommendation | |
 | Confidence | XX% |
 
-Give a concise 3–5 sentence conclusion explaining WHY.
+Then provide a concise **3–5 sentence Final Conclusion**.
 
-Never guarantee profits or future returns.
+The conclusion must explain WHY the assessment was reached.
+
+Never guarantee profits, future returns, or a specific probability of profit.
 
 `;
-
 }
 
 
@@ -1467,126 +1001,121 @@ Never guarantee profits or future returns.
 // SINGLE STOCK ROUTE
 // ============================================================
 
-app.post(
-  "/build",
-  async (req, res) => {
+app.post("/build", async (req, res) => {
 
-    try {
+  try {
 
-      const assetName =
-        req.body.assetName;
+    const assetName =
+      req.body.assetName;
 
 
-      if (
-        !assetName ||
-        !assetName.trim()
-      ) {
+    if (
+      !assetName ||
+      !assetName.trim()
+    ) {
 
-        return res.status(400).json({
-
-          error:
-            "Please provide a stock or company name."
-
-        });
-
-      }
-
-
-      console.log(
-        `Analyzing: ${assetName}`
-      );
-
-
-      // ------------------------------------------------------
-      // GET FINNHUB DATA
-      // ------------------------------------------------------
-
-      const stockData =
-        await getStockData(
-          assetName
-        );
-
-
-      console.log(
-        `Finnhub data retrieved for ${stockData.symbol}`
-      );
-
-
-      // ------------------------------------------------------
-      // GEMINI
-      // ------------------------------------------------------
-
-      const prompt =
-        createSingleStockPrompt(
-          stockData
-        );
-
-
-      const response =
-        await model.invoke([
-
-          new HumanMessage(
-            prompt
-          )
-
-        ]);
-
-
-      const analysis =
-        (
-          response.content ||
-          ""
-        ).trim();
-
-
-      // ------------------------------------------------------
-      // RESPONSE
-      // ------------------------------------------------------
-
-      res.json({
-
-        stockData,
-
-        analysis,
-
-        analysisDate:
-          stockData.analysisDate,
-
-        analysisTime:
-          stockData.analysisTime,
-
-        analysisTimezone:
-          stockData.analysisTimezone
-
-      });
-
-
-    } catch (error) {
-
-      console.error(
-        "Single Stock Analysis Error:",
-        error
-      );
-
-
-      res.status(500).json({
+      return res.status(400).json({
 
         error:
-          "Failed to generate financial analysis.",
-
-        details:
-          error.message
+          "Please provide a stock or company name."
 
       });
 
     }
 
+
+    console.log(
+      `Analyzing: ${assetName}`
+    );
+
+
+    // --------------------------------------------------------
+    // STEP 1: GET REAL DATA FROM YAHOO FINANCE
+    // --------------------------------------------------------
+
+    const stockData =
+      await getStockData(assetName);
+
+
+    console.log(
+      `Yahoo Finance data retrieved for ${stockData.symbol}`
+    );
+
+
+    console.log(
+      `Analysis timestamp: ${stockData.analysisDate} ${stockData.analysisTime} ${stockData.analysisTimezone}`
+    );
+
+
+    // --------------------------------------------------------
+    // STEP 2: SEND REAL DATA TO GEMINI
+    // --------------------------------------------------------
+
+    const prompt =
+      createSingleStockPrompt(
+        stockData
+      );
+
+
+    const response =
+      await model.invoke([
+
+        new HumanMessage(prompt)
+
+      ]);
+
+
+    const analysis =
+      (response.content || "").trim();
+
+
+    // --------------------------------------------------------
+    // STEP 3: RETURN DATA + AI ANALYSIS
+    // --------------------------------------------------------
+
+    res.json({
+
+      stockData,
+
+      analysis,
+
+      analysisDate:
+        stockData.analysisDate,
+
+      analysisTime:
+        stockData.analysisTime,
+
+      analysisTimezone:
+        stockData.analysisTimezone
+
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "Single Stock Analysis Error:",
+      error
+    );
+
+
+    res.status(500).json({
+
+      error:
+        "Failed to generate financial analysis.",
+
+      details:
+        error.message
+
+    });
+
   }
-);
+
+});
 
 
 // ============================================================
-// GEMINI COMPARISON PROMPT
+// GEMINI PROMPT — STOCK COMPARISON
 // ============================================================
 
 function createComparisonPrompt(
@@ -1598,17 +1127,14 @@ function createComparisonPrompt(
 
 You are Bolt AI, an experienced equity research analyst.
 
-Compare TWO stocks using ONLY the supplied data.
+You are comparing TWO stocks.
 
-Never invent missing financial figures.
+The financial data below was retrieved from Yahoo Finance.
 
-If a value is null, write "Data unavailable".
+Your job is to interpret the supplied numbers and determine which company currently has the stronger overall investment profile.
 
-Do not guarantee profits.
+DO NOT retrieve or invent additional financial figures.
 
-Historical performance does not guarantee future returns.
-
-The Investment Safety Score is NOT a probability of profit.
 
 ============================================================
 STOCK 1
@@ -1620,6 +1146,7 @@ ${JSON.stringify(
   2
 )}
 
+
 ============================================================
 STOCK 2
 ============================================================
@@ -1629,6 +1156,63 @@ ${JSON.stringify(
   null,
   2
 )}
+
+
+============================================================
+STRICT RULES
+============================================================
+
+1. Use ONLY the supplied data.
+
+2. Never invent missing numbers.
+
+3. If a value is null, write "Data unavailable".
+
+4. Do not use memory for current financial figures.
+
+5. Historical performance does not guarantee future returns.
+
+6. Do not guarantee profits.
+
+7. Do not claim a percentage probability of profit.
+
+8. Investment Safety Score is an analytical score, NOT a probability.
+
+9. Do not automatically declare a company better because it has a lower P/E.
+
+10. Consider valuation together with growth, profitability, financial health and risk.
+
+11. If a metric cannot fairly be compared, explain why.
+
+12. Do not invent company news or catalysts.
+
+13. The winner should be based on the total evidence, not one metric.
+
+14. analysisDate, analysisTime and analysisTimezone are generated by the backend.
+
+15. Use the supplied timestamp as the Date of Analysis.
+
+16. Never invent or replace the analysis date with an older date.
+
+17. The analysis date is not necessarily the same as the latest trading-session date.
+
+18. Do not change numerical values supplied by Yahoo Finance.
+
+
+============================================================
+COMPARISON FRAMEWORK
+============================================================
+
+Evaluate both companies across:
+
+1. Valuation
+2. Financial Health
+3. Profitability
+4. Growth
+5. Historical Performance
+6. Risk
+7. Overall Investment Profile
+
 
 ============================================================
 REQUIRED OUTPUT
@@ -1640,6 +1224,9 @@ REQUIRED OUTPUT
 
 **Analysis Time:** ${stockOne.analysisTime} ${stockOne.analysisTimezone}
 
+Start with a one-sentence overview of the comparison.
+
+
 ## 1. COMPANY OVERVIEW
 
 | Metric | ${stockOne.symbol} | ${stockTwo.symbol} |
@@ -1648,6 +1235,7 @@ REQUIRED OUTPUT
 | Sector | | |
 | Industry | | |
 | Asset Type | | |
+
 
 ## 2. MARKET METRICS
 
@@ -1659,6 +1247,9 @@ REQUIRED OUTPUT
 | 52-Week Low | | | |
 | Volume | | | |
 | Dividend Yield | | | |
+
+Do not automatically label a metric "better" unless the comparison has meaningful investment relevance.
+
 
 ## 3. VALUATION COMPARISON
 
@@ -1672,7 +1263,14 @@ REQUIRED OUTPUT
 | Price/Sales | | | |
 | EV/EBITDA | | | |
 
-Explain the valuation comparison.
+Then determine:
+
+**${stockOne.symbol} Valuation:** Undervalued / Fairly Valued / Overvalued / Insufficient Data
+
+**${stockTwo.symbol} Valuation:** Undervalued / Fairly Valued / Overvalued / Insufficient Data
+
+Explain the reasoning.
+
 
 ## 4. FINANCIAL HEALTH
 
@@ -1689,7 +1287,8 @@ Explain the valuation comparison.
 | Earnings Growth | | | |
 | Free Cash Flow | | | |
 
-Explain which has stronger financial health.
+Then explain which company has stronger financial health and why.
+
 
 ## 5. HISTORICAL PERFORMANCE
 
@@ -1701,7 +1300,10 @@ Explain which has stronger financial health.
 | 3 Years | | | |
 | 5 Years | | | |
 
+Remember:
+
 Historical performance does not guarantee future performance.
+
 
 ## 6. RISK COMPARISON
 
@@ -1710,12 +1312,18 @@ Compare:
 - Valuation Risk
 - Debt Risk
 - Growth Risk
+- Profitability Risk
 - Market Risk
 - Business Risk
 
-Use LOW / MODERATE / HIGH.
+Classify each:
+
+LOW / MODERATE / HIGH
+
 
 ## 7. INVESTMENT SCORECARD
+
+Give each company:
 
 ### ${stockOne.symbol}
 
@@ -1727,6 +1335,7 @@ Use LOW / MODERATE / HIGH.
 **Long-Term View:** Bullish / Neutral / Bearish  
 **Investment Safety Score:** XX/100
 
+
 ### ${stockTwo.symbol}
 
 **Valuation:**  
@@ -1737,7 +1346,15 @@ Use LOW / MODERATE / HIGH.
 **Long-Term View:** Bullish / Neutral / Bearish  
 **Investment Safety Score:** XX/100
 
+
+The Safety Score is an analytical rating based on the supplied evidence.
+
+It is NOT a probability of profit.
+
+
 ## 8. CATEGORY WINNERS
+
+Provide:
 
 | Category | Winner |
 |---|---|
@@ -1749,11 +1366,15 @@ Use LOW / MODERATE / HIGH.
 | Risk | |
 | Overall | |
 
+
+Explain any category where the result is close or ambiguous.
+
+
 ## 9. FINAL VERDICT
 
 # 🏆 BETTER OVERALL INVESTMENT
 
-Clearly choose either:
+Clearly choose:
 
 ${stockOne.symbol}
 
@@ -1761,179 +1382,195 @@ OR
 
 ${stockTwo.symbol}
 
-Give 3–5 concise reasons.
+
+Then provide:
+
+**Safety Score**
+
+${stockOne.symbol}: XX/100  
+${stockTwo.symbol}: XX/100
+
+
+**Risk**
+
+${stockOne.symbol}:  
+${stockTwo.symbol}:
+
+
+**Growth**
+
+${stockOne.symbol}:  
+${stockTwo.symbol}:
+
+
+**Valuation**
+
+${stockOne.symbol}:  
+${stockTwo.symbol}:
+
+
+Then explain in 3–5 concise points why the winner has the stronger overall profile.
+
 
 ## 10. FINAL CONCLUSION
 
-State which stock currently has the stronger overall investment profile based on the supplied valuation, financial health, growth, historical performance and risk data.
+End with:
 
-Also explain why the other stock could still suit a different investor.
+**Final Conclusion:**
 
-Never guarantee profits or future returns.
+[Winner] currently appears to have the stronger overall investment profile based on the available valuation, financial health, profitability, growth, historical performance and risk data.
+
+Then explain why the other stock could still be attractive for a different investor.
+
+Do not guarantee profits or future returns.
 
 `;
-
 }
 
 
 // ============================================================
-// COMPARISON ROUTE
+// STOCK COMPARISON ROUTE
 // ============================================================
 
-app.post(
-  "/compare",
-  async (req, res) => {
+app.post("/compare", async (req, res) => {
 
-    try {
+  try {
 
-      const {
-        stockOne,
-        stockTwo
-      } = req.body;
+    const {
+      stockOne,
+      stockTwo
+    } = req.body;
 
 
-      if (
-        !stockOne ||
-        !stockTwo ||
-        !stockOne.trim() ||
-        !stockTwo.trim()
-      ) {
+    // --------------------------------------------------------
+    // VALIDATION
+    // --------------------------------------------------------
 
-        return res.status(400).json({
+    if (
+      !stockOne ||
+      !stockTwo ||
+      !stockOne.trim() ||
+      !stockTwo.trim()
+    ) {
 
-          error:
-            "Please provide two stocks."
-
-        });
-
-      }
-
-
-      if (
-        stockOne
-          .trim()
-          .toLowerCase() ===
-        stockTwo
-          .trim()
-          .toLowerCase()
-      ) {
-
-        return res.status(400).json({
-
-          error:
-            "Please provide two different stocks."
-
-        });
-
-      }
-
-
-      console.log(
-        `Comparing ${stockOne} vs ${stockTwo}`
-      );
-
-
-      // ------------------------------------------------------
-      // GET BOTH STOCKS
-      // ------------------------------------------------------
-
-      const [
-        dataOne,
-        dataTwo
-      ] = await Promise.all([
-
-        getStockData(
-          stockOne
-        ),
-
-        getStockData(
-          stockTwo
-        )
-
-      ]);
-
-
-      console.log(
-        `Finnhub data retrieved for ${dataOne.symbol} and ${dataTwo.symbol}`
-      );
-
-
-      // ------------------------------------------------------
-      // GEMINI
-      // ------------------------------------------------------
-
-      const prompt =
-        createComparisonPrompt(
-          dataOne,
-          dataTwo
-        );
-
-
-      const response =
-        await model.invoke([
-
-          new HumanMessage(
-            prompt
-          )
-
-        ]);
-
-
-      const analysis =
-        (
-          response.content ||
-          ""
-        ).trim();
-
-
-      // ------------------------------------------------------
-      // RESPONSE
-      // ------------------------------------------------------
-
-      res.json({
-
-        stockOne:
-          dataOne,
-
-        stockTwo:
-          dataTwo,
-
-        analysis,
-
-        analysisDate:
-          dataOne.analysisDate,
-
-        analysisTime:
-          dataOne.analysisTime,
-
-        analysisTimezone:
-          dataOne.analysisTimezone
-
-      });
-
-
-    } catch (error) {
-
-      console.error(
-        "Comparison Error:",
-        error
-      );
-
-
-      res.status(500).json({
+      return res.status(400).json({
 
         error:
-          "Failed to compare the stocks.",
-
-        details:
-          error.message
+          "Please provide two stocks."
 
       });
 
     }
 
+
+    if (
+      stockOne.trim().toLowerCase() ===
+      stockTwo.trim().toLowerCase()
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          "Please provide two different stocks."
+
+      });
+
+    }
+
+
+    console.log(
+      `Comparing ${stockOne} vs ${stockTwo}`
+    );
+
+
+    // --------------------------------------------------------
+    // STEP 1: GET REAL DATA FOR BOTH STOCKS
+    // --------------------------------------------------------
+
+    const dataOne = await getStockData(stockOne);
+    const dataTwo = await getStockData(stockTwo);
+
+
+    console.log(
+      `Yahoo Finance data retrieved for ${dataOne.symbol} and ${dataTwo.symbol}`
+    );
+
+
+    console.log(
+      `Comparison timestamp: ${dataOne.analysisDate} ${dataOne.analysisTime} ${dataOne.analysisTimezone}`
+    );
+
+
+    // --------------------------------------------------------
+    // STEP 2: SEND REAL DATA TO GEMINI
+    // --------------------------------------------------------
+
+    const prompt =
+      createComparisonPrompt(
+        dataOne,
+        dataTwo
+      );
+
+
+    const response =
+      await model.invoke([
+
+        new HumanMessage(prompt)
+
+      ]);
+
+
+    const analysis =
+      (response.content || "").trim();
+
+
+    // --------------------------------------------------------
+    // STEP 3: RETURN RAW DATA + AI ANALYSIS
+    // --------------------------------------------------------
+
+    res.json({
+
+      stockOne:
+        dataOne,
+
+      stockTwo:
+        dataTwo,
+
+      analysis,
+
+      analysisDate:
+        dataOne.analysisDate,
+
+      analysisTime:
+        dataOne.analysisTime,
+
+      analysisTimezone:
+        dataOne.analysisTimezone
+
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "Comparison Error:",
+      error
+    );
+
+
+    res.status(500).json({
+
+      error:
+        "Failed to compare the stocks.",
+
+      details:
+        error.message
+
+    });
+
   }
-);
+
+});
 
 
 // ============================================================
